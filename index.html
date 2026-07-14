@@ -11,6 +11,16 @@
   <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
   <link href="static/styles.css" rel="stylesheet">
   <link rel="icon" type="image/png" href="static/logo.png">
+
+  <!-- ===== PWA (installable app) ===== -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0b1120">
+  <!-- iOS support -->
+  <link rel="apple-touch-icon" href="static/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="4S Bazzar">
+  <meta name="mobile-web-app-capable" content="yes">
 </head>
 <body class="bg-slate-100 min-h-screen">
   <div id="app"></div>
@@ -19,5 +29,58 @@
   <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/dayjs.min.js"></script>
   <script src="static/config.js"></script>
   <script src="static/app.js"></script>
+
+  <!-- ===== PWA: service worker + install button ===== -->
+  <script>
+    // 1) Register the service worker (required for the install prompt)
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch((err) => {
+          console.warn('[PWA] Service worker registration failed:', err);
+        });
+      });
+    }
+
+    // 2) Custom install button (Chrome/Edge/Android)
+    let deferredInstallPrompt = null;
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      showInstallButton();
+    });
+
+    function showInstallButton() {
+      if (document.getElementById('pwa-install-btn')) return;
+      const btn = document.createElement('button');
+      btn.id = 'pwa-install-btn';
+      btn.innerHTML = '<i class="fas fa-download mr-2"></i>Install App';
+      btn.style.cssText = [
+        'position:fixed', 'bottom:20px', 'right:20px', 'z-index:9999',
+        'padding:12px 20px', 'border:none', 'border-radius:14px',
+        'background:linear-gradient(135deg,#6366f1,#8b5cf6)', 'color:#fff',
+        'font-family:\'Plus Jakarta Sans\',sans-serif', 'font-weight:700',
+        'font-size:14px', 'cursor:pointer',
+        'box-shadow:0 8px 24px rgba(99,102,241,.45)'
+      ].join(';');
+      btn.addEventListener('click', async () => {
+        if (!deferredInstallPrompt) return;
+        deferredInstallPrompt.prompt();
+        const { outcome } = await deferredInstallPrompt.userChoice;
+        console.log('[PWA] Install prompt outcome:', outcome);
+        deferredInstallPrompt = null;
+        btn.remove();
+      });
+      document.body.appendChild(btn);
+    }
+
+    // 3) Hide button once installed
+    window.addEventListener('appinstalled', () => {
+      deferredInstallPrompt = null;
+      const btn = document.getElementById('pwa-install-btn');
+      if (btn) btn.remove();
+      console.log('[PWA] App installed \u2713');
+    });
+  </script>
 </body>
 </html>

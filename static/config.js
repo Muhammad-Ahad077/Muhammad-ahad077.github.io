@@ -19,4 +19,4 @@
 //
 // ============================================================
 
-window.API_BASE_URL = 'https://backend1-production-3fdf.up.railway.app/api';
+window.API_BASE_URL = 'https://YOUR-APP.up.railway.app/api';
