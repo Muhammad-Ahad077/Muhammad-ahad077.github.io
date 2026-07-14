@@ -12,6 +12,9 @@ const state = {
   analyticsFilter: { mode: 'all', date: '', month: '', year: '' },
   perfFilter: { mode: 'all', date: '', month: '', from: '', to: '' },
   eventCursor: 0,
+  msgCursor: -1,       // inbox message notification cursor (-1 = initialize)
+  inboxUnread: 0,      // unread badge count
+  inboxTab: 'received',
   eventTimer: null,
 };
 
@@ -140,7 +143,7 @@ function startEventPolling() {
   const poll = async () => {
     if (!state.token) return;
     try {
-      const { data } = await api.get('/events', { params: { since: state.eventCursor } });
+      const { data } = await api.get('/events', { params: { since: state.eventCursor, msince: state.msgCursor } });
       state.eventCursor = data.cursor;
       (data.events || []).forEach(ev => {
         const isIn = ev.type === 'in';
@@ -148,15 +151,27 @@ function startEventPolling() {
         // live-refresh the shifts page if open
         if (state.view === 'shifts') renderShifts(document.getElementById('main-content'));
       });
+      // ----- inbox message notifications -----
+      if (typeof data.mcursor !== 'undefined') state.msgCursor = data.mcursor;
+      if (typeof data.unread !== 'undefined' && data.unread !== state.inboxUnread) {
+        state.inboxUnread = data.unread;
+        updateInboxBadge();
+      }
+      (data.messages || []).forEach(m => {
+        showMessageNotification(m.sender_name, m.subject);
+        if (state.view === 'inbox') renderInbox(document.getElementById('main-content'));
+      });
       // every ~30s re-sync my permissions (e.g. admin granted/revoked Analytics/Sold access)
       if (++tick % 6 === 0) {
         const { data: me } = await api.get('/me');
-        if (me.user && (me.user.can_analytics !== state.user.can_analytics || me.user.can_sold !== state.user.can_sold || me.user.role !== state.user.role)) {
+        if (me.user && (me.user.can_analytics !== state.user.can_analytics || me.user.can_sold !== state.user.can_sold || me.user.can_inbox !== state.user.can_inbox || me.user.role !== state.user.role)) {
           const gainedA = me.user.can_analytics && !state.user.can_analytics;
           const gainedS = me.user.can_sold && !state.user.can_sold;
+          const gainedI = me.user.can_inbox && !state.user.can_inbox;
           state.user = me.user;
           toast(gainedA ? 'You have been granted Shop Analytics access'
             : gainedS ? 'You have been granted Sold page access'
+            : gainedI ? 'You can now send Inbox messages'
             : 'Your permissions were updated');
           render(); // rebuild nav (adds/removes tabs; kicks off blocked view if revoked)
         }
@@ -189,6 +204,38 @@ function showShiftNotification(username, isIn) {
   setTimeout(() => el.remove(), 6000);
 }
 
+// New inbox message toast — click it to open the Inbox
+function showMessageNotification(sender, subject) {
+  const el = document.createElement('div');
+  el.className = 'toast px-4 py-3 rounded-xl shadow-2xl text-white text-sm font-medium bg-indigo-600 cursor-pointer';
+  el.style.bottom = (1.5 + document.querySelectorAll('.toast').length * 4) + 'rem';
+  el.innerHTML = `
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-full bg-indigo-500 flex items-center justify-center shrink-0">
+        <i class="fas fa-envelope"></i>
+      </div>
+      <div>
+        <p class="font-bold">New message from ${esc(sender)}</p>
+        <p class="text-xs opacity-80">${esc(subject)} · tap to open Inbox</p>
+      </div>
+    </div>`;
+  el.onclick = () => { el.remove(); switchView('inbox'); };
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 8000);
+}
+
+// Keep the red unread-count badge on the Inbox nav tab in sync
+function updateInboxBadge() {
+  const badge = document.getElementById('inbox-badge');
+  if (!badge) return;
+  if (state.inboxUnread > 0) {
+    badge.textContent = state.inboxUnread > 99 ? '99+' : state.inboxUnread;
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+}
+
 // ===== DATA =====
 async function loadData() {
   const [p, cat] = await Promise.all([
@@ -211,31 +258,46 @@ function render() {
   const canSold = isAdmin || !!state.user.can_sold;
   if (state.view === 'analytics' && !canAnalytics) state.view = 'shop';
   if (state.view === 'sold' && !canSold) state.view = 'shop';
+  const tabs = [
+    { id: 'shop', icon: 'fa-bag-shopping', label: 'Shop', show: true },
+    { id: 'sold', icon: 'fa-circle-check', label: 'Sold', show: canSold },
+    { id: 'reports', icon: 'fa-file-invoice', label: 'Reports', show: true },
+    { id: 'inbox', icon: 'fa-envelope', label: 'Inbox', show: true, badge: true },
+    { id: 'shifts', icon: 'fa-clock', label: 'Shifts', show: true },
+    { id: 'analytics', icon: 'fa-chart-line', label: 'Analytics', show: canAnalytics },
+    { id: 'admin', icon: 'fa-user-shield', label: 'Admin', show: isAdmin },
+  ].filter(t => t.show);
+
+  const tabBtn = (t) => `
+    <button data-view="${t.id}" class="nav-btn relative px-3 py-2 text-sm font-semibold whitespace-nowrap shrink-0 ${state.view===t.id?'active':''}" title="${t.label}">
+      <i class="fas ${t.icon} mr-1.5"></i><span>${t.label}</span>
+      ${t.badge ? `<span id="inbox-badge" class="nav-badge ${state.inboxUnread>0?'':'hidden'}">${state.inboxUnread>99?'99+':state.inboxUnread}</span>` : ''}
+    </button>`;
+
   $app().innerHTML = `
   <nav id="main-nav" class="bg-slate-900 text-white sticky top-0 z-40 shadow-lg">
-    <div class="max-w-7xl mx-auto px-4">
-      <div class="flex items-center justify-between h-16 gap-4">
-        <a href="#" id="nav-brand" class="flex items-center gap-2.5 shrink-0">
+    <div class="max-w-7xl mx-auto px-3 sm:px-4">
+      <!-- Row 1: brand · search · user/theme/logout -->
+      <div class="flex items-center h-14 sm:h-16 gap-2 sm:gap-4">
+        <a href="#" id="nav-brand" class="flex items-center gap-2 sm:gap-2.5 shrink-0">
           <img id="nav-logo" src="static/logo.png" alt="4S Bazzar logo">
-          <span class="brand-text text-lg font-extrabold hidden sm:inline">4S Bazzar</span>
+          <span class="brand-text text-lg font-extrabold hidden md:inline">4S Bazzar</span>
         </a>
-        <div class="relative flex-1 max-w-xl">
-          <i class="fas fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
-          <input id="search-input" type="text" value="${esc(state.search)}" placeholder="Search products..."
-            class="w-full pl-11 pr-4 py-2 rounded-full bg-slate-800 border border-slate-700 focus:border-indigo-500 focus:outline-none text-sm">
+        <div id="nav-search-wrap" class="relative flex-1 min-w-0 max-w-xl mx-auto">
+          <i class="fas fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"></i>
+          <input id="search-input" type="search" inputmode="search" autocomplete="off" value="${esc(state.search)}" placeholder="Search products..."
+            class="w-full pl-10 pr-9 py-2 rounded-full bg-slate-800 border border-slate-700 focus:border-indigo-500 focus:outline-none text-sm text-white placeholder-slate-500">
+          <button id="search-clear" class="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full text-slate-400 hover:text-white hover:bg-slate-700 ${state.search?'':'hidden'}" title="Clear search"><i class="fas fa-xmark text-xs"></i></button>
         </div>
-        <div class="flex items-center gap-1 sm:gap-2 shrink-0">
-          <button data-view="shop" class="nav-btn px-3 py-2 text-sm font-semibold ${state.view==='shop'?'active':''}" title="Shop"><i class="fas fa-bag-shopping sm:mr-1.5"></i><span class="hidden sm:inline">Shop</span></button>
-          ${canSold ? `<button data-view="sold" class="nav-btn px-3 py-2 text-sm font-semibold ${state.view==='sold'?'active':''}" title="Sold items"><i class="fas fa-circle-check sm:mr-1.5"></i><span class="hidden sm:inline">Sold</span></button>` : ''}
-          <button data-view="reports" class="nav-btn px-3 py-2 text-sm font-semibold ${state.view==='reports'?'active':''}" title="Sales report"><i class="fas fa-file-invoice sm:mr-1.5"></i><span class="hidden sm:inline">Reports</span></button>
-          <button data-view="shifts" class="nav-btn px-3 py-2 text-sm font-semibold ${state.view==='shifts'?'active':''}" title="Shift tracking"><i class="fas fa-clock sm:mr-1.5"></i><span class="hidden sm:inline">Shifts</span></button>
-          ${canAnalytics ? `<button data-view="analytics" class="nav-btn px-3 py-2 text-sm font-semibold ${state.view==='analytics'?'active':''}" title="Shop analytics"><i class="fas fa-chart-line sm:mr-1.5"></i><span class="hidden sm:inline">Analytics</span></button>` : ''}
-          ${isAdmin ? `<button data-view="admin" class="nav-btn px-3 py-2 text-sm font-semibold ${state.view==='admin'?'active':''}" title="Admin panel"><i class="fas fa-user-shield sm:mr-1.5"></i><span class="hidden sm:inline">Admin</span></button>` : ''}
-          <div class="w-px h-6 bg-slate-700/60 mx-1"></div>
-          <span id="user-chip" class="hidden md:inline-flex items-center gap-1.5 text-xs text-indigo-200 px-2.5 py-1.5 rounded-full"><i class="fas fa-user text-[10px]"></i>${esc(state.user.username)}<span class="opacity-60">· ${state.user.role}</span></span>
-          <button id="theme-btn" class="nav-btn px-3 py-2 text-sm text-amber-300" title="Toggle light/dark theme">${state.theme==='dark'?'<i class="fas fa-sun"></i>':'<i class="fas fa-moon"></i>'}</button>
-          <button id="logout-btn" class="nav-btn px-3 py-2 text-sm text-rose-400" title="Logout"><i class="fas fa-right-from-bracket"></i></button>
+        <div class="flex items-center gap-1 sm:gap-1.5 shrink-0">
+          <span id="user-chip" class="hidden lg:inline-flex items-center gap-1.5 text-xs text-indigo-200 px-2.5 py-1.5 rounded-full"><i class="fas fa-user text-[10px]"></i>${esc(state.user.username)}<span class="opacity-60">· ${state.user.role}</span></span>
+          <button id="theme-btn" class="nav-btn px-2.5 sm:px-3 py-2 text-sm text-amber-300" title="Toggle light/dark theme">${state.theme==='dark'?'<i class="fas fa-sun"></i>':'<i class="fas fa-moon"></i>'}</button>
+          <button id="logout-btn" class="nav-btn px-2.5 sm:px-3 py-2 text-sm text-rose-400" title="Logout"><i class="fas fa-right-from-bracket"></i></button>
         </div>
+      </div>
+      <!-- Row 2: nav tabs (scrollable on small screens, never squished) -->
+      <div id="nav-tabs" class="flex items-center gap-1 sm:gap-1.5 overflow-x-auto pb-2 -mx-1 px-1">
+        ${tabs.map(tabBtn).join('')}
       </div>
     </div>
   </nav>
@@ -251,16 +313,45 @@ function render() {
   document.getElementById('logout-btn').onclick = () => logout();
   document.getElementById('theme-btn').onclick = toggleTheme;
 
+  // ---- Search bar: debounce, keep focus & caret across re-renders, Esc/✕ to clear ----
+  const searchInput = document.getElementById('search-input');
+  const clearBtn = document.getElementById('search-clear');
   let searchTimer;
-  document.getElementById('search-input').addEventListener('input', (e) => {
+
+  const runSearch = async () => {
+    await refreshProducts();
+    if (state.view !== 'shop') {
+      state.view = 'shop'; render();
+      const inp = document.getElementById('search-input');
+      if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+    }
+    else {
+      renderView();
+      // re-focus the input and restore caret so typing isn't interrupted
+      const inp = document.getElementById('search-input');
+      if (inp && document.activeElement !== inp) {
+        inp.focus();
+        inp.setSelectionRange(inp.value.length, inp.value.length);
+      }
+    }
+  };
+
+  searchInput.addEventListener('input', (e) => {
     state.search = e.target.value;
+    clearBtn.classList.toggle('hidden', !state.search);
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(async () => {
-      await refreshProducts();
-      if (state.view !== 'shop') { state.view = 'shop'; render(); }
-      else renderView();
-    }, 300);
+    searchTimer = setTimeout(runSearch, 300);
   });
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { clearTimeout(searchTimer); runSearch(); }
+    if (e.key === 'Escape') { searchInput.value = ''; state.search = ''; clearBtn.classList.add('hidden'); clearTimeout(searchTimer); runSearch(); }
+  });
+  clearBtn.onclick = () => {
+    searchInput.value = ''; state.search = '';
+    clearBtn.classList.add('hidden');
+    clearTimeout(searchTimer); runSearch();
+    searchInput.focus();
+  };
 
   renderView();
 }
@@ -278,6 +369,7 @@ function renderView() {
     else { state.view = 'shop'; renderShop(el); }
   }
   else if (state.view === 'reports') renderReports(el);
+  else if (state.view === 'inbox') renderInbox(el);
   else if (state.view === 'shifts') renderShifts(el);
   else if (state.view === 'analytics') {
     if (state.user.role === 'admin' || state.user.can_analytics) renderShopAnalytics(el);
@@ -1309,6 +1401,10 @@ async function renderAdminUsers(c) {
                   <label class="inline-flex items-center gap-1.5 cursor-pointer select-none" title="Grant or revoke access to the Sold page">
                     <input type="checkbox" class="sold-toggle accent-emerald-600" data-uid="${u.id}" ${u.can_sold ? 'checked' : ''}>
                     <span class="${u.can_sold ? 'text-emerald-600 font-semibold' : 'text-slate-400'}"><i class="fas fa-circle-check mr-0.5"></i>Sold page ${u.can_sold ? 'granted' : 'off'}</span>
+                  </label>
+                  <label class="inline-flex items-center gap-1.5 cursor-pointer select-none" title="Allow this user to SEND inbox messages (everyone can always receive)">
+                    <input type="checkbox" class="inbox-toggle accent-violet-600" data-uid="${u.id}" ${u.can_inbox ? 'checked' : ''}>
+                    <span class="${u.can_inbox ? 'text-emerald-600 font-semibold' : 'text-slate-400'}"><i class="fas fa-envelope mr-0.5"></i>Inbox send ${u.can_inbox ? 'granted' : 'off'}</span>
                   </label>`}
             </p>
           </div>
@@ -1389,6 +1485,251 @@ async function renderAdminUsers(c) {
       toast(errMsg(err), 'error');
     }
   });
+  c.querySelectorAll('.inbox-toggle').forEach(cb => cb.onchange = async () => {
+    const grant = cb.checked;
+    try {
+      await api.patch(`/users/${cb.dataset.uid}/inbox-access`, { grant });
+      toast(grant ? 'Inbox sending granted — they can now send messages' : 'Inbox sending revoked');
+      renderAdminUsers(c);
+    } catch (err) {
+      cb.checked = !grant; // revert on failure
+      toast(errMsg(err), 'error');
+    }
+  });
+}
+
+// ===== INBOX PAGE =====
+// Everyone can RECEIVE messages. Only admins or users granted
+// "Inbox sending" by an admin can COMPOSE & SEND.
+async function renderInbox(el) {
+  el.innerHTML = `<div class="text-center py-16 text-slate-400"><i class="fas fa-spinner fa-spin text-3xl"></i><p class="mt-2">Loading inbox...</p></div>`;
+  let data;
+  try { ({ data } = await api.get('/inbox')); }
+  catch (e) { el.innerHTML = `<p class="text-rose-600">${esc(errMsg(e))}</p>`; return; }
+
+  state.inboxUnread = data.unread;
+  updateInboxBadge();
+  const canSend = data.canSend;
+  const isSentTab = state.inboxTab === 'sent' && canSend;
+
+  el.innerHTML = `
+  <section id="inbox-view" class="fade-in max-w-3xl mx-auto">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+      <h2 class="text-2xl font-bold text-slate-800">
+        <i class="fas fa-envelope text-indigo-600 mr-2"></i>Inbox
+        ${data.unread > 0 ? `<span class="badge bg-rose-100 text-rose-700 ml-1">${data.unread} unread</span>` : ''}
+      </h2>
+      <div class="flex items-center gap-2">
+        ${data.unread > 0 ? `<button id="read-all-btn" class="px-3 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm font-semibold"><i class="fas fa-check-double mr-1"></i>Mark all read</button>` : ''}
+        ${canSend ? `<button id="compose-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold"><i class="fas fa-pen mr-1"></i>Compose</button>` : ''}
+      </div>
+    </div>
+    ${!canSend ? `<p class="text-xs text-slate-400 mb-4"><i class="fas fa-info-circle mr-1"></i>You can receive messages. To send messages, ask an admin to grant you Inbox access.</p>` : `
+    <div class="flex gap-2 mb-4 border-b border-slate-200">
+      <button data-itab="received" class="inbox-tab px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px ${!isSentTab?'border-indigo-600 text-indigo-600':'border-transparent text-slate-500 hover:text-slate-700'}"><i class="fas fa-inbox mr-1"></i>Received</button>
+      <button data-itab="sent" class="inbox-tab px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px ${isSentTab?'border-indigo-600 text-indigo-600':'border-transparent text-slate-500 hover:text-slate-700'}"><i class="fas fa-paper-plane mr-1"></i>Sent</button>
+    </div>`}
+    <div id="inbox-list"></div>
+  </section>`;
+
+  el.querySelectorAll('.inbox-tab').forEach(b => b.onclick = () => { state.inboxTab = b.dataset.itab; renderInbox(el); });
+  const composeBtn = document.getElementById('compose-btn');
+  if (composeBtn) composeBtn.onclick = () => openComposeModal(() => renderInbox(el));
+  const readAllBtn = document.getElementById('read-all-btn');
+  if (readAllBtn) readAllBtn.onclick = async () => {
+    try { await api.post('/inbox/read-all'); toast('All messages marked read'); renderInbox(el); }
+    catch (e) { toast(errMsg(e), 'error'); }
+  };
+
+  const list = document.getElementById('inbox-list');
+  if (isSentTab) renderSentList(list, el);
+  else renderReceivedList(list, el, data.messages);
+}
+
+function renderReceivedList(list, el, messages) {
+  list.innerHTML = messages.length ? messages.map(m => `
+    <article class="inbox-msg bg-white rounded-xl shadow mb-3 overflow-hidden ${!m.read_at ? 'inbox-unread' : ''}">
+      <button class="msg-head w-full text-left px-4 py-3.5 flex items-start gap-3" data-rid="${m.recipient_id}">
+        <div class="w-10 h-10 rounded-full ${!m.read_at ? 'bg-indigo-600' : 'bg-slate-300'} text-white flex items-center justify-center shrink-0 font-bold">
+          ${esc((m.sender_name || '?').charAt(0).toUpperCase())}
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center justify-between gap-2">
+            <p class="font-bold text-slate-800 truncate">${esc(m.subject)} ${!m.read_at ? '<span class="badge bg-indigo-100 text-indigo-700 ml-1">new</span>' : ''}</p>
+            <span class="text-xs text-slate-400 whitespace-nowrap shrink-0">${fmtDT(m.created_at)}</span>
+          </div>
+          <p class="text-sm text-slate-500">From <b class="text-indigo-600">${esc(m.sender_name || 'Unknown')}</b></p>
+        </div>
+        <i class="fas fa-chevron-down text-slate-300 mt-2 msg-chevron"></i>
+      </button>
+      <div class="msg-body hidden px-4 pb-4 pt-1 border-t border-slate-100">
+        <p class="text-sm text-slate-700 whitespace-pre-wrap">${esc(m.body || '(no message body)')}</p>
+        <div class="flex justify-end mt-3">
+          <button class="msg-del text-xs text-slate-400 hover:text-rose-600" data-rid="${m.recipient_id}"><i class="fas fa-trash mr-1"></i>Delete</button>
+        </div>
+      </div>
+    </article>`).join('')
+  : `<div class="text-center py-16 text-slate-400 bg-white rounded-xl shadow">
+      <i class="fas fa-envelope-open text-5xl mb-3"></i>
+      <p class="font-medium">No messages yet</p>
+      <p class="text-sm mt-1">Messages sent to you will appear here.</p>
+    </div>`;
+
+  // expand / collapse + mark read on open
+  list.querySelectorAll('.msg-head').forEach(h => h.onclick = async () => {
+    const art = h.closest('article');
+    const body = art.querySelector('.msg-body');
+    const chev = art.querySelector('.msg-chevron');
+    const opening = body.classList.contains('hidden');
+    body.classList.toggle('hidden');
+    chev.classList.toggle('fa-chevron-down', !opening ? true : false);
+    chev.classList.toggle('fa-chevron-up', opening);
+    if (opening && art.classList.contains('inbox-unread')) {
+      art.classList.remove('inbox-unread');
+      art.querySelector('.badge')?.remove();
+      const av = art.querySelector('.msg-head > div:first-child, .msg-head div.w-10');
+      if (av) { av.classList.remove('bg-indigo-600'); av.classList.add('bg-slate-300'); }
+      try {
+        await api.patch(`/inbox/${h.dataset.rid}/read`);
+        state.inboxUnread = Math.max(0, state.inboxUnread - 1);
+        updateInboxBadge();
+      } catch (e) { /* silent */ }
+    }
+  });
+  list.querySelectorAll('.msg-del').forEach(b => b.onclick = async (e) => {
+    e.stopPropagation();
+    if (!confirm('Delete this message from your inbox?')) return;
+    try { await api.delete(`/inbox/${b.dataset.rid}`); toast('Message deleted'); renderInbox(el); }
+    catch (err) { toast(errMsg(err), 'error'); }
+  });
+}
+
+async function renderSentList(list, el) {
+  list.innerHTML = `<p class="text-slate-400"><i class="fas fa-spinner fa-spin mr-1"></i>Loading sent messages...</p>`;
+  let messages = [];
+  try { ({ data: { messages } } = await api.get('/inbox/sent')); }
+  catch (e) { list.innerHTML = `<p class="text-rose-600">${esc(errMsg(e))}</p>`; return; }
+
+  list.innerHTML = messages.length ? messages.map(m => `
+    <article class="bg-white rounded-xl shadow mb-3 px-4 py-3.5">
+      <div class="flex items-start justify-between gap-2">
+        <div class="min-w-0">
+          <p class="font-bold text-slate-800 truncate">${esc(m.subject)}</p>
+          <p class="text-xs text-slate-400 mt-0.5">To: <span class="text-slate-500">${esc(m.recipients || '—')}</span></p>
+          <p class="text-sm text-slate-600 whitespace-pre-wrap mt-2">${esc(m.body || '(no message body)')}</p>
+        </div>
+        <button class="sent-del text-slate-400 hover:text-rose-600 shrink-0" data-mid="${m.id}" title="Delete for all recipients"><i class="fas fa-trash"></i></button>
+      </div>
+      <div class="flex items-center justify-between mt-3 pt-2 border-t border-slate-100 text-xs text-slate-400">
+        <span><i class="far fa-clock mr-1"></i>${fmtDT(m.created_at)}</span>
+        <span class="${m.read_count >= m.recipient_count && m.recipient_count > 0 ? 'text-emerald-600 font-semibold' : ''}">
+          <i class="fas fa-check-double mr-1"></i>Read by ${m.read_count} / ${m.recipient_count}
+        </span>
+      </div>
+    </article>`).join('')
+  : `<div class="text-center py-16 text-slate-400 bg-white rounded-xl shadow">
+      <i class="fas fa-paper-plane text-5xl mb-3"></i>
+      <p class="font-medium">Nothing sent yet</p>
+      <p class="text-sm mt-1">Click Compose to send your first message.</p>
+    </div>`;
+
+  list.querySelectorAll('.sent-del').forEach(b => b.onclick = async () => {
+    if (!confirm('Delete this message for ALL recipients? This cannot be undone.')) return;
+    try { await api.delete(`/inbox/message/${b.dataset.mid}`); toast('Message deleted'); renderInbox(el); }
+    catch (err) { toast(errMsg(err), 'error'); }
+  });
+}
+
+// Compose modal — pick exactly which users receive the message (or everyone)
+async function openComposeModal(onDone) {
+  const modal = document.getElementById('modal-root');
+  modal.innerHTML = `<div class="modal-backdrop"><div class="modal-panel max-w-lg p-6 text-center text-slate-400"><i class="fas fa-spinner fa-spin mr-1"></i>Loading recipients...</div></div>`;
+  let users = [];
+  try { ({ data: { users } } = await api.get('/inbox/recipients')); }
+  catch (e) { modal.innerHTML = ''; toast(errMsg(e), 'error'); return; }
+
+  modal.innerHTML = `
+  <div class="modal-backdrop">
+    <div class="modal-panel max-w-lg">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+        <h3 class="font-bold text-slate-800 text-lg"><i class="fas fa-pen text-indigo-600 mr-2"></i>New Message</h3>
+        <button id="compose-close" class="text-slate-400 hover:text-slate-600 w-8 h-8"><i class="fas fa-xmark"></i></button>
+      </div>
+      <form id="compose-form" class="p-5 space-y-4">
+        <div>
+          <label class="block text-sm font-semibold text-slate-700 mb-1.5">Send to *</label>
+          <label class="flex items-center gap-2 mb-2 cursor-pointer select-none bg-indigo-50 rounded-lg px-3 py-2.5">
+            <input type="checkbox" id="send-all" class="accent-indigo-600">
+            <span class="text-sm font-semibold text-indigo-700"><i class="fas fa-bullhorn mr-1"></i>Everyone (broadcast to all users)</span>
+          </label>
+          <div id="recipient-list" class="max-h-44 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+            ${users.length ? users.map(u => `
+              <label class="recipient-row flex items-center gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-slate-50 select-none">
+                <input type="checkbox" class="recipient-cb accent-indigo-600" value="${u.id}">
+                <span class="w-7 h-7 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-xs font-bold shrink-0">${esc(u.username.charAt(0).toUpperCase())}</span>
+                <span class="text-sm font-medium text-slate-700">${esc(u.username)}</span>
+                <span class="badge ${u.role==='admin'?'bg-indigo-100 text-indigo-700':'bg-slate-100 text-slate-500'} ml-auto">${u.role}</span>
+              </label>`).join('') : '<p class="text-sm text-slate-400 p-3">No other users exist yet.</p>'}
+          </div>
+          <p id="recipient-count" class="text-xs text-slate-400 mt-1">0 selected</p>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-slate-700 mb-1.5">Subject *</label>
+          <input id="compose-subject" maxlength="200" required class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:border-indigo-500 focus:outline-none" placeholder="e.g. Tomorrow's schedule">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-slate-700 mb-1.5">Message</label>
+          <textarea id="compose-body" rows="4" maxlength="5000" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:border-indigo-500 focus:outline-none resize-y" placeholder="Write your message..."></textarea>
+        </div>
+        <button type="submit" id="compose-send" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-lg">
+          <i class="fas fa-paper-plane mr-1.5"></i>Send Message
+        </button>
+      </form>
+    </div>
+  </div>`;
+
+  const close = () => modal.innerHTML = '';
+  document.getElementById('compose-close').onclick = close;
+  modal.querySelector('.modal-backdrop').addEventListener('click', (e) => { if (e.target === e.currentTarget) close(); });
+
+  const sendAll = document.getElementById('send-all');
+  const cbs = [...modal.querySelectorAll('.recipient-cb')];
+  const countEl = document.getElementById('recipient-count');
+  const updCount = () => {
+    if (sendAll.checked) { countEl.textContent = `Everyone (${users.length} users)`; return; }
+    const n = cbs.filter(cb => cb.checked).length;
+    countEl.textContent = `${n} selected`;
+  };
+  sendAll.onchange = () => {
+    cbs.forEach(cb => { cb.disabled = sendAll.checked; });
+    document.getElementById('recipient-list').style.opacity = sendAll.checked ? '.45' : '1';
+    updCount();
+  };
+  cbs.forEach(cb => cb.onchange = updCount);
+
+  document.getElementById('compose-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const subject = document.getElementById('compose-subject').value.trim();
+    const body = document.getElementById('compose-body').value.trim();
+    const toAll = sendAll.checked;
+    const ids = cbs.filter(cb => cb.checked).map(cb => Number(cb.value));
+    if (!subject) return toast('Subject is required', 'error');
+    if (!toAll && !ids.length) return toast('Select at least one recipient', 'error');
+
+    const btn = document.getElementById('compose-send');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1.5"></i>Sending...';
+    try {
+      const { data } = await api.post('/inbox/send', { subject, body, to_all: toAll, recipient_ids: ids });
+      toast(`Message sent to ${data.recipient_count} user${data.recipient_count === 1 ? '' : 's'}`);
+      close();
+      if (onDone) onDone();
+    } catch (err) {
+      toast(errMsg(err), 'error');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-paper-plane mr-1.5"></i>Send Message';
+    }
+  };
 }
 
 // ===== SHIFT TRACKING PAGE =====

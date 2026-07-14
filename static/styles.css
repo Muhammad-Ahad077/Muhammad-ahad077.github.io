@@ -91,20 +91,40 @@ button:active { transform: scale(.96); }
   background: var(--grad);
   box-shadow: 0 4px 14px -4px rgba(99,102,241,.6);
 }
-.nav-btn.active::after {
-  content: ''; position: absolute; left: 20%; right: 20%; bottom: -13px;
-  height: 3px; border-radius: 3px 3px 0 0;
-  background: var(--grad);
+/* red unread badge on the Inbox tab */
+.nav-badge {
+  position: absolute; top: -4px; right: -4px;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 9999px;
+  background: #e11d48; color: #fff;
+  font-size: 10px; font-weight: 800; line-height: 1;
+  box-shadow: 0 2px 6px rgba(225,29,72,.5);
+  animation: popIn .25s cubic-bezier(.22,1,.36,1);
 }
+
+/* nav tab row: hide scrollbar but keep horizontal scroll on mobile */
+#nav-tabs {
+  scrollbar-width: none;          /* Firefox */
+  -ms-overflow-style: none;       /* old Edge */
+  -webkit-overflow-scrolling: touch;
+}
+#nav-tabs::-webkit-scrollbar { display: none; }
 
 /* nav search */
 #search-input {
   transition: box-shadow .25s ease, border-color .25s ease, background .25s ease;
+  color: #e2e8f0 !important;              /* always readable on the dark navbar */
+  background-color: #1e293b !important;
 }
+#search-input::placeholder { color: #64748b !important; }
 #search-input:focus {
-  background: rgba(30,41,59,.9) !important;
+  background: rgba(30,41,59,.95) !important;
   box-shadow: 0 0 0 3px rgba(99,102,241,.25);
 }
+/* remove the native ✕ of input[type=search] — we have our own clear button */
+#search-input::-webkit-search-cancel-button,
+#search-input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; }
 
 /* user chip */
 #user-chip {
@@ -216,6 +236,21 @@ html.dark .product-card { border-color: rgba(99,102,241,.15); }
 html.dark .product-card:hover { box-shadow: 0 14px 30px -8px rgba(0,0,0,.6) !important; }
 html.dark #login-card { background: #151e33 !important; }
 html.dark #login-card h1 { color: #e2e8f0 !important; }
+
+/* navbar search must stay dark even in light theme (navbar itself is dark) */
+html:not(.dark) #search-input {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+}
+
+/* ===== INBOX ===== */
+.inbox-unread {
+  border-left: 4px solid #6366f1;
+  box-shadow: 0 4px 14px -4px rgba(99,102,241,.35) !important;
+}
+.inbox-msg .msg-head:hover { background: rgba(99,102,241,.05); }
+html.dark .inbox-msg .msg-head:hover { background: rgba(99,102,241,.1); }
+#recipient-list label:hover { background: rgba(99,102,241,.06); }
 
 /* ===== Made by Ayan & Ahad watermark ===== */
 #watermark {

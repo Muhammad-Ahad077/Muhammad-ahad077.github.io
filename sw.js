@@ -6,7 +6,7 @@
    - API calls (anything not same-origin) are never cached.
    ============================================================ */
 
-const CACHE_NAME = '4s-bazzar-v1';
+const CACHE_NAME = '4s-bazzar-v2'; // bumped: new navbar + inbox feature
 
 // App shell to pre-cache (relative paths so it works on GitHub
 // Pages subpaths like /4s-bazzar-frontend/ too)

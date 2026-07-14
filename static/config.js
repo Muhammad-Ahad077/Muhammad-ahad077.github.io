@@ -15,7 +15,7 @@
 //  3. Put that URL below and ADD /api at the end (no trailing slash).
 //
 //  Example:
-//  window.API_BASE_URL = 'https://4s-bazzar-backend-production.up.railway.app/api';
+//  window.API_BASE_URL = 'https://backend1-production-3fdf.up.railway.app/api';
 //
 // ============================================================
 
