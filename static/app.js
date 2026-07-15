@@ -180,7 +180,9 @@ function renderSidebar() {
     <div><div class="sb-user-name">${esc(S.user.name)}</div><div class="sb-user-role">${esc(S.user.role)}</div></div>`;
 }
 $('#menu-btn').addEventListener('click', () => document.body.classList.toggle('sb-open'));
-(() => { const o = document.createElement('div'); o.id = 'sb-overlay'; o.addEventListener('click', () => document.body.classList.remove('sb-open')); document.body.appendChild(o); })();
+// Overlay must live INSIDE #app: #app creates a stacking context (z-index:1), so an
+// overlay on <body> would sit ABOVE the sidebar and swallow all taps on mobile.
+(() => { const o = document.createElement('div'); o.id = 'sb-overlay'; o.addEventListener('click', () => document.body.classList.remove('sb-open')); $('#app').appendChild(o); })();
 
 function go(page) {
   S.page = page;

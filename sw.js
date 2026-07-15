@@ -3,7 +3,7 @@
  *  - App shell (html/css/js/logo/fonts) → cache-first with background refresh
  *  - /api/* → network-only (always fresh data), graceful JSON error offline
  */
-const VERSION = '4sb-v2';
+const VERSION = '4sb-v3';
 const SHELL = [
   '/',
   '/static/styles.css',
