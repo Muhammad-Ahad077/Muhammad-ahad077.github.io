@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>4S Bazzar — Premium Shop Manager</title>
+<meta name="theme-color" content="#0a0a0f" />
+<link rel="icon" type="image/png" href="/static/logo-64.png" />
+<link rel="apple-touch-icon" href="/static/logo-192.png" />
+<link rel="manifest" href="/manifest.webmanifest" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="4S Bazzar" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+
+<!-- ═══ LOADING SPLASH ═══ -->
+<div id="splash">
+  <div class="splash-inner">
+    <div class="splash-logo">
+      <img src="/static/logo-192.png" alt="4S Bazzar" width="96" height="96" style="image-rendering:pixelated" />
+    </div>
+    <div class="splash-word">4S <span>BAZZAR</span></div>
+    <div class="splash-bar"><div class="splash-bar-fill"></div></div>
+    <div class="splash-tip">Opening the shop…</div>
+  </div>
+</div>
+
+<!-- ═══ LOGIN ═══ -->
+<div id="login-screen" class="hidden">
+  <div class="login-art" aria-hidden="true"></div>
+  <div class="login-panel">
+    <div class="login-brand">
+      <img src="/static/logo-64.png" alt="4S Bazzar" width="48" height="48" style="image-rendering:pixelated" />
+      <div class="login-word">4S <span>BAZZAR</span></div>
+    </div>
+    <h1>Welcome back</h1>
+    <p class="login-sub">Enter the <b>passkey</b> your admin generated for you.<br/>Each key is a unique hash-verified code.</p>
+    <form id="login-form" autocomplete="off">
+      <label class="field-label" for="passkey">Passkey</label>
+      <div class="key-input-wrap">
+        <svg class="key-ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+        <input id="passkey" type="password" placeholder="VS-XXXX-XXXX-XXXX" spellcheck="false" />
+        <button type="button" id="key-eye" title="Show / hide">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+      <div id="login-error" class="login-error hidden"></div>
+      <button type="submit" class="btn-gold btn-lg" id="login-btn">
+        <span class="btn-label">Unlock Shop</span>
+        <span class="btn-spinner hidden"></span>
+      </button>
+    </form>
+    <div class="login-foot">Don't have a passkey? Ask your admin — they create it in the <b>Admin Panel</b>.</div>
+    <button type="button" class="install-btn hidden" title="Install 4S Bazzar as an app">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+      Install app
+    </button>
+    <div class="watermark">Made by <a href="https://www.instagram.com/ayan._.bhaiii/" target="_blank" rel="noopener">Ayan</a>, Planed by <a href="https://www.instagram.com/ahadahad6171/" target="_blank" rel="noopener">Ahad</a></div>
+  </div>
+</div>
+
+<!-- ═══ APP SHELL ═══ -->
+<div id="app" class="hidden">
+  <aside id="sidebar">
+    <div class="sb-brand">
+      <img src="/static/logo-64.png" alt="4S Bazzar" width="36" height="36" style="image-rendering:pixelated" />
+      <span class="sb-word">4S <b>BAZZAR</b></span>
+    </div>
+    <nav id="sb-nav"></nav>
+    <div class="sb-bottom">
+      <div id="sb-user"></div>
+      <button id="logout-btn" class="sb-logout" title="Sign out">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+        <span>Sign out</span>
+      </button>
+    </div>
+  </aside>
+
+  <div id="main-col">
+    <header id="topbar">
+      <button id="menu-btn" aria-label="Menu">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+      <div id="page-title">Products</div>
+      <div id="topbar-right"></div>
+      <button type="button" class="install-btn hidden" title="Install 4S Bazzar as an app">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+        <span class="install-label">Install</span>
+      </button>
+    </header>
+    <main id="view"></main>
+    <footer class="watermark app-watermark">Made by <a href="https://www.instagram.com/ayan._.bhaiii/" target="_blank" rel="noopener">Ayan</a>, Planed by <a href="https://www.instagram.com/ahadahad6171/" target="_blank" rel="noopener">Ahad</a></footer>
+  </div>
+</div>
+
+<div id="modal-root"></div>
+<div id="toast-root"></div>
+
+<script src="/static/app.js"></script>
+<script>
+// ═══ PWA: service worker + install prompt ═══
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+}
+let deferredInstall = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredInstall = e;
+  document.querySelectorAll('.install-btn').forEach(b => b.classList.remove('hidden'));
+});
+window.addEventListener('appinstalled', () => {
+  deferredInstall = null;
+  document.querySelectorAll('.install-btn').forEach(b => b.classList.add('hidden'));
+});
+document.addEventListener('click', async e => {
+  const btn = e.target.closest('.install-btn');
+  if (!btn || !deferredInstall) return;
+  deferredInstall.prompt();
+  await deferredInstall.userChoice;
+  deferredInstall = null;
+  btn.classList.add('hidden');
+});
+</script>
+</body>
+</html>
