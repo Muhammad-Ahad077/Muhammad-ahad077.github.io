@@ -1,9 +1,13 @@
 /* 4S Bazzar — service worker
- * Strategy:
- *  - App shell (html/css/js/logo/fonts) → cache-first with background refresh
- *  - /api/* → network-only (always fresh data), graceful JSON error offline
+ * Strategy (v4 — instant updates):
+ *  - HTML / JS / CSS → NETWORK-FIRST: visitors always get the newest deployed
+ *    version instantly; the cache is only used when offline.
+ *  - Images / fonts / icons → cache-first with background refresh (they rarely change).
+ *  - /api/* → network-only (always fresh data), graceful JSON error offline.
+ *  - New SW versions activate immediately (skipWaiting + clients.claim) and the
+ *    page auto-reloads once via controllerchange (see index.html).
  */
-const VERSION = '4sb-v3';
+const VERSION = '4sb-v4';
 const SHELL = [
   '/',
   '/static/styles.css',
@@ -26,6 +30,16 @@ self.addEventListener('activate', e => {
   );
 });
 
+// Anything that defines the app's behaviour must always be fresh.
+function isAppCode(req, url) {
+  return req.mode === 'navigate' ||
+    url.pathname.endsWith('.html') ||
+    url.pathname.endsWith('.js') ||
+    url.pathname.endsWith('.css') ||
+    url.pathname === '/' ||
+    url.pathname === '/manifest.webmanifest';
+}
+
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET') return;
@@ -40,7 +54,25 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // Shell & static: cache-first, refresh in background
+  // HTML / JS / CSS: NETWORK-FIRST → updates are visible instantly.
+  // Cache is only the offline fallback.
+  if (isAppCode(e.request, url)) {
+    e.respondWith(
+      fetch(e.request, { cache: 'no-cache' }).then(resp => {
+        if (resp.ok && url.origin === location.origin) {
+          const copy = resp.clone();
+          caches.open(VERSION).then(c => c.put(e.request, copy));
+        }
+        return resp;
+      }).catch(() =>
+        caches.match(e.request).then(cached => cached ||
+          (e.request.mode === 'navigate' ? caches.match('/') : undefined))
+      )
+    );
+    return;
+  }
+
+  // Images / fonts / other static: cache-first, refresh in background
   e.respondWith(
     caches.match(e.request).then(cached => {
       const fresh = fetch(e.request).then(resp => {

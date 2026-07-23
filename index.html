@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Marcellus&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-<link rel="stylesheet" href="/static/styles.css" />
+<link rel="stylesheet" href="/static/styles.css?v=4" />
 </head>
 <body>
 
@@ -110,11 +110,26 @@ window.API_BASE = location.hostname.endsWith('github.io')
   ? 'https://backend-production-2b71e.up.railway.app'
   : '';
 </script>
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=4"></script>
 <script>
 // ═══ PWA: service worker + install prompt ═══
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+  window.addEventListener('load', async () => {
+    try {
+      const reg = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
+      // check for a new version now, on tab focus, and every 30 min
+      reg.update().catch(() => {});
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+      setInterval(() => reg.update().catch(() => {}), 30 * 60 * 1000);
+    } catch {}
+  });
+  // when a new service worker takes control, reload ONCE so visitors instantly get the new version
+  let swReloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (swReloaded) return;
+    swReloaded = true;
+    location.reload();
+  });
 }
 let deferredInstall = null;
 window.addEventListener('beforeinstallprompt', e => {
