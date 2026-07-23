@@ -7,7 +7,7 @@
  *  - New SW versions activate immediately (skipWaiting + clients.claim) and the
  *    page auto-reloads once via controllerchange (see index.html).
  */
-const VERSION = '4sb-v4';
+const VERSION = '4sb-v5';
 const SHELL = [
   '/',
   '/static/styles.css',

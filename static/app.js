@@ -293,13 +293,24 @@ async function loadProducts(qs) {
 async function renderNotReady() {
   const view = $('#view');
   const canManage = S.user.perms.can_add_product || S.user.perms.can_edit_product || S.user.role === 'admin';
-  view.innerHTML = `<div id="nr-list">${skeletonGrid(4)}</div>`;
-  async function load() {
+  view.innerHTML = `
+    <div class="toolbar">
+      <div class="search-wrap">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="nr-search" placeholder="Search not-ready products…" />
+      </div>
+    </div>
+    <div id="nr-list">${skeletonGrid(4)}</div>`;
+  let debounce;
+  $('#nr-search').addEventListener('input', e => { clearTimeout(debounce); debounce = setTimeout(() => load(e.target.value), 250); });
+  async function load(qs) {
     try {
-      const d = await api('/products?view=notready');
+      const params = new URLSearchParams({ view: 'notready' });
+      if (qs) params.set('q', qs);
+      const d = await api('/products?' + params);
       S.cache.products = d.products;
       const el = $('#nr-list'); if (!el) return;
-      if (!d.products.length) { el.innerHTML = emptyState('Nothing waiting here', 'Products marked “not ready” during creation will show up here until you move them to the shop.'); return; }
+      if (!d.products.length) { el.innerHTML = qs ? emptyState('No matches', 'No not-ready product matches your search.') : emptyState('Nothing waiting here', 'Products marked “not ready” during creation will show up here until you move them to the shop.'); return; }
       el.innerHTML = `<div class="product-grid">` + d.products.map(p => `
         <div class="p-card">
           <div class="p-top">
@@ -321,27 +332,38 @@ async function renderNotReady() {
       $$('[data-ready]', el).forEach(b => b.addEventListener('click', async () => {
         try {
           await api(`/products/${b.dataset.ready}/ready`, { method: 'POST', body: { ready: true } });
-          toast('Moved to Products ✅'); load();
+          toast('Moved to Products ✅'); load($('#nr-search')?.value || '');
         } catch (e) { toast(e.message, 'err'); }
       }));
       $$('[data-edit]', el).forEach(b => b.addEventListener('click', () => productModal(b.dataset.edit)));
       $$('[data-del]', el).forEach(b => b.addEventListener('click', () => deleteProduct(b.dataset.del)));
     } catch (e) { toast(e.message, 'err'); }
   }
-  load();
+  load('');
 }
 
 /* ═══════════════════ OUT STOCK ═══════════════════ */
 async function renderOutStock() {
   const view = $('#view');
   const canManage = S.user.perms.can_add_product || S.user.perms.can_edit_product || S.user.role === 'admin';
-  view.innerHTML = `<div id="os-list">${skeletonGrid(4)}</div>`;
-  async function load() {
+  view.innerHTML = `
+    <div class="toolbar">
+      <div class="search-wrap">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="os-search" placeholder="Search out-of-stock products…" />
+      </div>
+    </div>
+    <div id="os-list">${skeletonGrid(4)}</div>`;
+  let debounce;
+  $('#os-search').addEventListener('input', e => { clearTimeout(debounce); debounce = setTimeout(() => load(e.target.value), 250); });
+  async function load(qs) {
     try {
-      const d = await api('/products?view=outstock');
+      const params = new URLSearchParams({ view: 'outstock' });
+      if (qs) params.set('q', qs);
+      const d = await api('/products?' + params);
       S.cache.products = d.products;
       const el = $('#os-list'); if (!el) return;
-      if (!d.products.length) { el.innerHTML = emptyState('Nothing is out of stock', 'When a product\'s last piece is sold it moves here automatically until you restock it.'); return; }
+      if (!d.products.length) { el.innerHTML = qs ? emptyState('No matches', 'No out-of-stock product matches your search.') : emptyState('Nothing is out of stock', 'When a product\'s last piece is sold it moves here automatically until you restock it.'); return; }
       el.innerHTML = `<div class="product-grid">` + d.products.map(p => `
         <div class="p-card">
           <div class="p-top">
@@ -358,11 +380,11 @@ async function renderOutStock() {
             ${S.user.perms.can_delete_product ? `<button class="icon-btn danger" data-del="${p.id}" title="Delete"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2m1 0v14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V6"/></svg></button>` : ''}
           </div>
         </div>`).join('') + `</div>`;
-      $$('[data-restock]', el).forEach(b => b.addEventListener('click', () => restockModal(b.dataset.restock, load)));
+      $$('[data-restock]', el).forEach(b => b.addEventListener('click', () => restockModal(b.dataset.restock, () => load($('#os-search')?.value || ''))));
       $$('[data-del]', el).forEach(b => b.addEventListener('click', () => deleteProduct(b.dataset.del)));
     } catch (e) { toast(e.message, 'err'); }
   }
-  load();
+  load('');
 }
 function restockModal(id, onDone) {
   const p = S.cache.products.find(x => x.id === id);
