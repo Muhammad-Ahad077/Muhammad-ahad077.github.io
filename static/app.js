@@ -88,9 +88,13 @@ const NAV_ICONS = {
   shifts: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>',
   admin: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2l8 3.5V11c0 5-3.4 9.4-8 11-4.6-1.6-8-6-8-11V5.5z"/><path d="M9 12l2 2 4-4.5"/></svg>',
   creation: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/><rect x="2.5" y="2.5" width="19" height="19" rx="5"/></svg>',
+  notready: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>',
+  outstock: '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 8v10l-9 4-9-4V8l9-4z"/><path d="M3 8l9 4 9-4M12 12v10"/><path d="M2 2l20 20" stroke-width="1.4"/></svg>',
 };
 const PAGES = [
   { id: 'products', label: 'Products', perm: 'page_products' },
+  { id: 'notready', label: 'Not Ready', perm: 'page_notready' },
+  { id: 'outstock', label: 'Out Stock', perm: 'page_outstock' },
   { id: 'creation', label: 'Creation', perm: 'page_creation' },
   { id: 'sold', label: 'Sold Out', perm: 'page_sold' },
   { id: 'analysis', label: 'Analysis', perm: 'page_analysis' },
@@ -192,7 +196,7 @@ function go(page) {
   $('#topbar-right').innerHTML = '';
   const view = $('#view');
   view.style.animation = 'none'; void view.offsetWidth; view.style.animation = '';
-  ({ products: renderProducts, creation: renderCreation, sold: renderSold, analysis: renderAnalysis, inbox: renderInbox, shifts: renderShifts, admin: renderAdmin }[page] || renderProducts)();
+  ({ products: renderProducts, notready: renderNotReady, outstock: renderOutStock, creation: renderCreation, sold: renderSold, analysis: renderAnalysis, inbox: renderInbox, shifts: renderShifts, admin: renderAdmin }[page] || renderProducts)();
 }
 
 function skeletonGrid(n = 8) {
@@ -253,14 +257,14 @@ async function renderProducts() {
 async function loadProducts(qs) {
   try {
     const params = new URLSearchParams();
+    params.set('view', 'shop'); // only ready & in-stock products belong on the shop page
     if (qs) params.set('q', qs);
     if (prodCat) params.set('category', prodCat);
-    const d = await api('/products' + (params.toString() ? '?' + params : ''));
+    const d = await api('/products?' + params);
     S.cache.products = d.products;
     const el = $('#prod-list');
     if (!el) return;
     if (!d.products.length) { el.innerHTML = emptyState('No products yet', S.user.perms.can_add_product ? 'Click “+ Add Product” to add your first item.' : 'Your admin hasn\'t added products yet.'); return; }
-    const canCost = d.products.some(p => p.cost !== undefined);
     el.innerHTML = `<div class="product-grid">` + d.products.map(p => `
       <div class="p-card ${p.pinned ? 'pinned' : ''}">
         ${p.pinned ? '<div class="pin-badge" title="Pinned">📌</div>' : ''}
@@ -271,10 +275,10 @@ async function loadProducts(qs) {
         <div class="p-meta">
           <span class="chip gold">${money(p.price)}</span>
           ${p.cost !== undefined ? `<span class="chip">cost ${money(p.cost)}</span>` : ''}
-          <span class="chip ${p.qty > 0 ? 'green' : 'red'}">${p.qty > 0 ? p.qty + ' in stock' : 'Out of stock'}</span>
+          <span class="chip green">${p.qty} in stock</span>
         </div>
         <div class="p-actions">
-          ${S.user.perms.can_sell ? `<button class="btn-gold" data-sell="${p.id}" ${p.qty <= 0 ? 'disabled style="opacity:.4;cursor:not-allowed"' : ''}>Sold</button>` : ''}
+          ${S.user.perms.can_sell ? `<button class="btn-gold" data-sell="${p.id}">Sold</button>` : ''}
           ${S.user.perms.can_edit_product ? `<button class="icon-btn" data-edit="${p.id}" title="Edit"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg></button>` : ''}
           ${S.user.perms.can_delete_product ? `<button class="icon-btn danger" data-del="${p.id}" title="Delete"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2m1 0v14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V6"/></svg></button>` : ''}
         </div>
@@ -285,6 +289,113 @@ async function loadProducts(qs) {
   } catch (e) { toast(e.message, 'err'); }
 }
 
+/* ═══════════════════ NOT READY ═══════════════════ */
+async function renderNotReady() {
+  const view = $('#view');
+  const canManage = S.user.perms.can_add_product || S.user.perms.can_edit_product || S.user.role === 'admin';
+  view.innerHTML = `<div id="nr-list">${skeletonGrid(4)}</div>`;
+  async function load() {
+    try {
+      const d = await api('/products?view=notready');
+      S.cache.products = d.products;
+      const el = $('#nr-list'); if (!el) return;
+      if (!d.products.length) { el.innerHTML = emptyState('Nothing waiting here', 'Products marked “not ready” during creation will show up here until you move them to the shop.'); return; }
+      el.innerHTML = `<div class="product-grid">` + d.products.map(p => `
+        <div class="p-card">
+          <div class="p-top">
+            <div class="p-icon">${productIconHTML(p)}</div>
+            <div style="min-width:0"><div class="p-name">${esc(p.name)}</div><div class="p-cat">${esc(p.category)}</div></div>
+          </div>
+          <div class="p-meta">
+            <span class="chip gold">${money(p.price)}</span>
+            ${p.cost !== undefined ? `<span class="chip">cost ${money(p.cost)}</span>` : ''}
+            <span class="chip">${p.qty} pcs</span>
+            <span class="chip red">not ready</span>
+          </div>
+          <div class="p-actions">
+            ${canManage ? `<button class="btn-gold" data-ready="${p.id}">✅ Move to Products</button>` : ''}
+            ${S.user.perms.can_edit_product ? `<button class="icon-btn" data-edit="${p.id}" title="Edit"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg></button>` : ''}
+            ${S.user.perms.can_delete_product ? `<button class="icon-btn danger" data-del="${p.id}" title="Delete"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2m1 0v14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V6"/></svg></button>` : ''}
+          </div>
+        </div>`).join('') + `</div>`;
+      $$('[data-ready]', el).forEach(b => b.addEventListener('click', async () => {
+        try {
+          await api(`/products/${b.dataset.ready}/ready`, { method: 'POST', body: { ready: true } });
+          toast('Moved to Products ✅'); load();
+        } catch (e) { toast(e.message, 'err'); }
+      }));
+      $$('[data-edit]', el).forEach(b => b.addEventListener('click', () => productModal(b.dataset.edit)));
+      $$('[data-del]', el).forEach(b => b.addEventListener('click', () => deleteProduct(b.dataset.del)));
+    } catch (e) { toast(e.message, 'err'); }
+  }
+  load();
+}
+
+/* ═══════════════════ OUT STOCK ═══════════════════ */
+async function renderOutStock() {
+  const view = $('#view');
+  const canManage = S.user.perms.can_add_product || S.user.perms.can_edit_product || S.user.role === 'admin';
+  view.innerHTML = `<div id="os-list">${skeletonGrid(4)}</div>`;
+  async function load() {
+    try {
+      const d = await api('/products?view=outstock');
+      S.cache.products = d.products;
+      const el = $('#os-list'); if (!el) return;
+      if (!d.products.length) { el.innerHTML = emptyState('Nothing is out of stock', 'When a product\'s last piece is sold it moves here automatically until you restock it.'); return; }
+      el.innerHTML = `<div class="product-grid">` + d.products.map(p => `
+        <div class="p-card">
+          <div class="p-top">
+            <div class="p-icon">${productIconHTML(p)}</div>
+            <div style="min-width:0"><div class="p-name">${esc(p.name)}</div><div class="p-cat">${esc(p.category)}</div></div>
+          </div>
+          <div class="p-meta">
+            <span class="chip gold">${money(p.price)}</span>
+            ${p.cost !== undefined ? `<span class="chip">cost ${money(p.cost)}</span>` : ''}
+            <span class="chip red">Out of stock</span>
+          </div>
+          <div class="p-actions">
+            ${canManage ? `<button class="btn-gold" data-restock="${p.id}">📦 Restock</button>` : ''}
+            ${S.user.perms.can_delete_product ? `<button class="icon-btn danger" data-del="${p.id}" title="Delete"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2m1 0v14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V6"/></svg></button>` : ''}
+          </div>
+        </div>`).join('') + `</div>`;
+      $$('[data-restock]', el).forEach(b => b.addEventListener('click', () => restockModal(b.dataset.restock, load)));
+      $$('[data-del]', el).forEach(b => b.addEventListener('click', () => deleteProduct(b.dataset.del)));
+    } catch (e) { toast(e.message, 'err'); }
+  }
+  load();
+}
+function restockModal(id, onDone) {
+  const p = S.cache.products.find(x => x.id === id);
+  if (!p) return;
+  const m = openModal(`
+    <h3>Restock — ${esc(p.name)}</h3>
+    <div class="m-sub">How many pieces did you get back in stock? The product will return to the Products page.</div>
+    <div class="f-group"><label>Quantity to add</label><input id="rs-qty" type="number" min="1" step="1" value="1" /></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="rs-cancel">Cancel</button>
+      <button class="btn-gold" id="rs-confirm">Restock</button>
+    </div>`);
+  setTimeout(() => $('#rs-qty', m)?.focus(), 60);
+  $('#rs-cancel', m).addEventListener('click', closeModal);
+  $('#rs-confirm', m).addEventListener('click', async () => {
+    const qty = Math.floor(+$('#rs-qty', m).value);
+    if (!(qty > 0)) return toast('Enter a valid quantity', 'err');
+    try {
+      const d = await api(`/products/${id}/restock`, { method: 'POST', body: { qty } });
+      closeModal();
+      toast(`Restocked — ${d.product.qty} pcs now available ✅`);
+      if (onDone) onDone();
+    } catch (e) { toast(e.message, 'err'); }
+  });
+}
+
+function refreshCurrentList() {
+  // refresh whichever page the user is on after a product change
+  if (S.page === 'notready') renderNotReady();
+  else if (S.page === 'outstock') renderOutStock();
+  else if (S.page === 'creation') loadCreation();
+  else loadProducts($('#prod-search')?.value || '');
+}
 function productModal(editId) {
   const p = editId ? S.cache.products.find(x => x.id === editId) : null;
   let icon = p?.icon || 'phone';
@@ -301,7 +412,8 @@ function productModal(editId) {
       <div class="f-group"><label>How many pieces?</label><input id="pm-qty" type="number" min="0" step="1" value="${p?.qty ?? ''}" placeholder="5" /></div>
       <div class="f-group"><label>Category</label><select id="pm-cat">${(S.cache.categories || []).map(c => `<option ${p?.category === c.name ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}<option value="__new">➕ New category…</option></select></div>
     </div>
-    <div class="perm-item" style="margin-bottom:14px"><span>📌 Pin this product to the top</span><label class="toggle"><input type="checkbox" id="pm-pin" ${p?.pinned ? 'checked' : ''}/><span class="tk"></span></label></div>
+    <div class="perm-item" style="margin-bottom:10px"><span>📌 Pin this product to the top</span><label class="toggle"><input type="checkbox" id="pm-pin" ${p?.pinned ? 'checked' : ''}/><span class="tk"></span></label></div>
+    <div class="perm-item" style="margin-bottom:14px"><span>✅ Is this product ready? <small style="display:block;color:var(--dim)">If off, it goes to the “Not Ready” page instead of Products.</small></span><label class="toggle"><input type="checkbox" id="pm-ready" ${p ? (p.ready !== false ? 'checked' : '') : 'checked'}/><span class="tk"></span></label></div>
     <div class="f-group"><label>Pick a premade icon</label>
       <div class="icon-pick" id="pm-icons">${Object.keys(ICONS).map(k => `<div class="icon-opt ${!image && k === icon ? 'sel' : ''}" data-ic="${k}" title="${k}">${ICONS[k]}</div>`).join('')}</div>
     </div>
@@ -351,14 +463,16 @@ function productModal(editId) {
     const body = {
       name: $('#pm-name', m).value, cost: +$('#pm-cost', m).value || 0, price: +$('#pm-price', m).value || 0,
       qty: +$('#pm-qty', m).value || 0, category: $('#pm-cat', m).value === '__new' ? 'General' : ($('#pm-cat', m).value || 'General'),
-      icon, image, pinned: $('#pm-pin', m).checked,
+      icon, image, pinned: $('#pm-pin', m).checked, ready: $('#pm-ready', m).checked,
     };
     if (!body.name.trim()) return toast('Product name is required', 'err');
     try {
       if (p) await api('/products/' + p.id, { method: 'PATCH', body });
       else await api('/products', { method: 'POST', body });
-      closeModal(); toast(p ? 'Product updated' : 'Product added ✔');
-      loadProducts($('#prod-search')?.value || '');
+      closeModal();
+      if (!body.ready) toast(p ? 'Saved — product is in “Not Ready” ⏳' : 'Product added to “Not Ready” ⏳ — move it to Products when it\'s ready');
+      else toast(p ? 'Product updated' : 'Product added ✔');
+      refreshCurrentList();
     } catch (e) { toast(e.message, 'err'); }
   });
 }
@@ -368,7 +482,7 @@ async function deleteProduct(id) {
     <div class="modal-actions"><button class="btn-ghost" id="dp-c">Cancel</button><button class="btn-danger" id="dp-y">Delete</button></div>`);
   $('#dp-c', m).addEventListener('click', closeModal);
   $('#dp-y', m).addEventListener('click', async () => {
-    try { await api('/products/' + id, { method: 'DELETE' }); closeModal(); toast('Product deleted'); loadProducts($('#prod-search')?.value || ''); }
+    try { await api('/products/' + id, { method: 'DELETE' }); closeModal(); toast('Product deleted'); refreshCurrentList(); }
     catch (e) { toast(e.message, 'err'); }
   });
 }
@@ -398,24 +512,26 @@ function sellModal(id) {
     </div>`);
   const renderAccs = () => {
     $('#sm-accs', m).innerHTML = accs.map((a, i) => `
-      <div class="acc-row">
+      <div class="acc-row acc-row-3">
         <input placeholder="Accessory name (e.g. Case)" value="${esc(a.name)}" data-an="${i}" />
-        <input type="number" min="0" step="1" placeholder="Price Rs" value="${a.price || ''}" data-ap="${i}" />
+        <input type="number" min="0" step="1" placeholder="Cost Rs" value="${a.cost || ''}" data-ac="${i}" title="What this accessory cost the shop" />
+        <input type="number" min="0" step="1" placeholder="Selling Rs" value="${a.price || ''}" data-ap="${i}" title="What it was sold for" />
         <button type="button" class="icon-btn danger" data-ar="${i}" style="width:100%;height:100%"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
       </div>`).join('');
     $$('[data-an]', m).forEach(i2 => i2.addEventListener('input', e => { accs[+e.target.dataset.an].name = e.target.value; }));
+    $$('[data-ac]', m).forEach(i2 => i2.addEventListener('input', e => { accs[+e.target.dataset.ac].cost = +e.target.value || 0; updProfit(); }));
     $$('[data-ap]', m).forEach(i2 => i2.addEventListener('input', e => { accs[+e.target.dataset.ap].price = +e.target.value || 0; updProfit(); }));
     $$('[data-ar]', m).forEach(b => b.addEventListener('click', () => { accs.splice(+b.dataset.ar, 1); renderAccs(); updProfit(); }));
   };
   const updProfit = () => {
     const el = $('#sm-profit', m); if (!el || p.cost === undefined) return;
-    const val = (+$('#sm-price', m).value || 0) - p.cost + accs.reduce((s, a) => s + (+a.price || 0), 0);
+    const val = (+$('#sm-price', m).value || 0) - p.cost + accs.reduce((s, a) => s + ((+a.price || 0) - (+a.cost || 0)), 0);
     el.textContent = money(val);
     el.className = val >= 0 ? 'pos' : 'neg';
   };
   $('#sm-addacc', m).addEventListener('click', () => {
-    // "when worker click on accessories it will ask for name of accessorie and price"
-    accs.push({ name: '', price: 0 }); renderAccs();
+    // accessory asks for name + cost + selling price
+    accs.push({ name: '', cost: 0, price: 0 }); renderAccs();
     setTimeout(() => $$('[data-an]', m).pop()?.focus(), 40);
   });
   $('#sm-price', m).addEventListener('input', updProfit);
@@ -433,7 +549,8 @@ function sellModal(id) {
     try {
       const d = await api(`/products/${id}/sell`, { method: 'POST', body });
       closeModal();
-      toast(`Sold! ${d.profit !== undefined ? 'Profit ' + money(d.profit) : ''} — ${d.remaining_qty} left`, 'ok');
+      if (d.remaining_qty <= 0) toast(`Sold! ${d.profit !== undefined ? 'Profit ' + money(d.profit) : ''} — last piece! Moved to Out Stock 📦`, 'info');
+      else toast(`Sold! ${d.profit !== undefined ? 'Profit ' + money(d.profit) : ''} — ${d.remaining_qty} left`, 'ok');
       loadProducts($('#prod-search')?.value || '');
     } catch (e) { toast(e.message, 'err'); }
   });
@@ -467,12 +584,13 @@ async function renderSold() {
       if (!d.sales.length) { el.innerHTML = emptyState('No sales found', 'Try different filters, or sell something first!'); return; }
       const hasProfit = d.sales.some(s => s.profit !== undefined);
       el.innerHTML = `<div class="tbl-wrap"><table>
-        <thead><tr><th>Product</th><th>Specs</th><th>Sold in</th><th>Accessories</th>${hasProfit ? '<th>Profit</th>' : ''}<th>Seller</th><th>Date</th>${S.user.role === 'admin' ? '<th></th>' : ''}</tr></thead>
+        <thead><tr><th>Product</th><th>Specs</th><th>Sold in</th><th>Accessories</th><th>Note</th>${hasProfit ? '<th>Profit</th>' : ''}<th>Seller</th><th>Date</th>${S.user.role === 'admin' ? '<th></th>' : ''}</tr></thead>
         <tbody>${d.sales.map(s => `<tr>
           <td><span class="strong">${esc(s.product_name)}</span></td>
           <td>${[s.storage_gb ? s.storage_gb + 'GB' : '', s.ram_gb ? s.ram_gb + 'GB RAM' : ''].filter(Boolean).join(' · ') || '—'}</td>
           <td class="strong">${money(s.sold_price)}</td>
-          <td>${(s.accessories || []).length ? s.accessories.map(a => `${esc(a.name)} (${money(a.price)})`).join(', ') : '—'}</td>
+          <td>${(s.accessories || []).length ? s.accessories.map(a => `${esc(a.name)} (${a.cost ? money(a.cost) + ' → ' : ''}${money(a.price)})`).join(', ') : '—'}</td>
+          <td class="sale-note" title="${esc(s.note || '')}">${s.note ? '📝 ' + esc(s.note) : '—'}</td>
           ${hasProfit ? `<td class="${(s.profit ?? 0) >= 0 ? 'pos' : 'neg'}">${s.profit !== undefined ? money(s.profit) : '—'}</td>` : ''}
           <td>${esc(s.seller_name)}</td>
           <td>${fmtDate(s.date)}</td>
@@ -664,7 +782,8 @@ async function renderShifts() {
 
 /* ═══════════════════ ADMIN PANEL ═══════════════════ */
 const PERM_LABELS = {
-  page_products: 'See Products page', page_sold: 'See Sold Out page', page_analysis: 'See Analysis page',
+  page_products: 'See Products page', page_notready: 'See Not Ready page', page_outstock: 'See Out Stock page',
+  page_sold: 'See Sold Out page', page_analysis: 'See Analysis page',
   page_inbox: 'See Inbox page', page_shifts: 'See Shift page', page_admin: 'See Admin Panel',
   can_sell: 'Can sell products', can_add_product: 'Can add products', can_edit_product: 'Can edit products',
   can_delete_product: 'Can delete products', view_others_analysis: 'See other users\' analysis',
@@ -716,7 +835,7 @@ async function renderAdmin() {
       </div>
       <div class="f-group"><label>Permissions</label>
         <div class="perm-grid">${Object.entries(PERM_LABELS).map(([k, l]) => `
-          <div class="perm-item"><span>${l}</span><label class="toggle"><input type="checkbox" data-pk="${k}" ${['page_products','page_sold','page_analysis','page_inbox','page_shifts','can_sell'].includes(k) ? 'checked' : ''}/><span class="tk"></span></label></div>`).join('')}
+          <div class="perm-item"><span>${l}</span><label class="toggle"><input type="checkbox" data-pk="${k}" ${['page_products','page_notready','page_outstock','page_sold','page_analysis','page_inbox','page_shifts','can_sell'].includes(k) ? 'checked' : ''}/><span class="tk"></span></label></div>`).join('')}
         </div>
       </div>
       <div class="modal-actions"><button class="btn-ghost" id="um-c">Cancel</button><button class="btn-gold" id="um-s">Create & generate passkey</button></div>`);
@@ -813,7 +932,7 @@ async function loadCreation() {
         <span class="dnd-grip">⠿</span>
         <div class="p-icon" style="width:34px;height:34px;border-radius:10px">${ICONS[x.icon] || ICONS.box}</div>
         <div style="flex:1;min-width:0"><div class="rank-name">${esc(x.name)}</div>
-          <div class="rank-sub">${S.cache.products.filter(pr => pr.category === x.name).length} products</div></div>
+          <div class="rank-sub">${S.cache.products.filter(pr => pr.category === x.name).length} products · ${S.cache.products.filter(pr => pr.category === x.name).reduce((s2, pr) => s2 + (+pr.qty || 0), 0)} pcs total</div></div>
         ${canEdit ? `<button class="icon-btn" data-catedit="${x.id}" title="Rename"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg></button>` : ''}
         ${canDel ? `<button class="icon-btn danger" data-catdel="${x.id}" title="Delete"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2m1 0v14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V6"/></svg></button>` : ''}
       </div>`).join('') : emptyState('No categories', 'Create your first category.');

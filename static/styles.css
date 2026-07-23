@@ -357,6 +357,9 @@ td .strong { color: var(--ink); font-weight: 600; }
 
 /* accessories rows in sell modal */
 .acc-row { display: grid; grid-template-columns: 1fr 110px 38px; gap: 8px; margin-bottom: 8px; }
+.acc-row.acc-row-3 { grid-template-columns: 1fr 90px 90px 38px; }
+@media (max-width: 560px) { .acc-row.acc-row-3 { grid-template-columns: 1fr 70px 70px 34px; } }
+.sale-note { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
 .acc-row input { padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,.04); border: 1px solid var(--line-soft); color: var(--ink); outline: none; }
 .acc-row input:focus { border-color: rgba(245,212,122,.45); }
 .profit-preview {
